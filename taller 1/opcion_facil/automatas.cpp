@@ -31,6 +31,6 @@ void jarraPequenaControl(){
     jarraGrandeControl();
 }
 
-main(){
+int main(){
     jarraGrandeControl();
 }
