@@ -1,3 +1,30 @@
+/**
+ Dada una red a la cual está conectada la computadora que está ejeccutando este programa,
+ y que también exista otra computadora conectada a la misma y se provea su dirección,
+ entonces, el siguiente programa se encarga de comunicar ambas computadoras.
+ Más específicamente, permite que la computadora actual tenga un rol de cliente y servidor
+ al enviar y recibir mensajes.
+
+ El problema planteado, es el de una escena de la película "Duro de matar", en el cual se tiene
+ una bomba que se desea desactivar colocando exactamente 4lts de agua en una jarra de capacidad 5lts.
+ Este problema se ha modelado a través de autómatas de estados, los cuales representan los estados
+ de las jarras proveídas para resolverlo (una de 3lts y la otra de 5lts).
+
+ En este sentido, el programa actual también implementa el funcionamiento del autómata de estados
+ de la jarra grande (5lts)(modelo entregado en la parte (a) de este taller).
+ Este debe recibir mensajes así como enviar, y de este modo conocer cuánta
+ agua se ha movido, añadido, etc., con el fin de desactivar la bomba.
+
+ Autores:
+    Kenny Rojas, 18-10595
+    Gabriela Panqueva, 18-10761
+    Simón Puyosa, 18-10717
+
+ Créditos:
+    Prof. Miguel Torrealba.
+    Leandro Lucarella - Copyleft 2004.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -12,10 +39,17 @@
 #define MY_ADDR "127.0.0.1"
 #define MAX_CONTENT 5
 
+/* Configuramos el estado inicial en contenido = 0lts ya que está vacía la jarra */
 int contenido = 0;
 
 int main(int argc, char *argv[])
 {
+    if (argc != 2)
+    {
+        fprintf(stderr, "\nuso: %s [hostname de la jarra pequeña]\n", argv[0]);
+        exit(1);
+    }
+
     int sockfd;                    /* descriptor para el socket */
     struct sockaddr_in their_addr; /* direccion IP y numero de puerto del cliente */
     struct sockaddr_in my_addr;    /* direccion IP y numero de puerto local */
@@ -33,12 +67,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    struct timeval read_timeout;
-    read_timeout.tv_sec = 0;
-    read_timeout.tv_usec = 10;
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof read_timeout);
-
-    /* Leemos la ip de la jarra Grande */
+    /* Leemos la IP de la jarra pequeña */
     if ((he = gethostbyname(argv[1])) == NULL)
     {
         perror("gethostbyname");
@@ -63,42 +92,50 @@ int main(int argc, char *argv[])
     their_addr.sin_addr = *((struct in_addr *)he->h_addr);
     bzero(&(their_addr.sin_zero), 8); /* pone en cero el resto */
 
-    /* Esperamos a que la jarra chiquita reciba la primera peticion para saber si se pudo conectar */
+    /* Esperamos a que la jarra pequeña (3lts) reciba la primera peticion para saber si se pudo conectar */
     while (1)
     {
+        /* Se verifica si la jarra está vacía, y si lo está, se llena */
         if (contenido == 0)
         {
-            printf("Se llena la jarra grande\n");
+            printf("Se ha llenado la jarra.\n");
             contenido = MAX_CONTENT;
         }
 
+        /* Limpiamos el buf, ya que suele tener basura */
         memset(buf, 0, sizeof(buf));
-        while (buf[0] == 0)
-        {
-            memset(temp, 0, sizeof(temp));
-            sprintf(temp, "MOVER:%d", contenido);
-            if ((numbytes = sendto(sockfd, temp, strlen(temp), 0, (struct sockaddr *)&their_addr, sizeof(struct sockaddr))) == -1)
-            {
-                perror("sendto");
-                exit(2);
-            }
 
-            memset(buf, 0, sizeof(buf));
-            if ((numbytes = recvfrom(sockfd, buf, BUFFER_LEN, 0, (struct sockaddr *)&their_addr, (socklen_t *)&addr_len)) == -1)
-            {
-                printf("No se ha recibido resupuesta de la jarra chiquita, restableciendo conexion\n");
-                continue;
-            }
+        /* Se verifica que haya conexión entre las jarras */
+        /* Limpiamos el buf */
+        memset(temp, 0, sizeof(temp));
+        sprintf(temp, "MOVER:%d", contenido);
+
+        /* Se envía el mensaje a la jarra pequeña y se verifica si algo falla */
+        if ((numbytes = sendto(sockfd, temp, strlen(temp), 0, (struct sockaddr *)&their_addr, sizeof(struct sockaddr))) == -1)
+        {
+            perror("sendto");
+            exit(2);
         }
 
-        printf("Se movio %d Litros de agua de la jarra grande a la jarra chiquita\n", atoi(buf + 7));
+        /* Limpiamos el buf */
+        memset(buf, 0, sizeof(buf));
 
+        /* Se recibe la respuesta de la jarra pequeña y se verifica si algo falla */
+        if ((numbytes = recvfrom(sockfd, buf, BUFFER_LEN, 0, (struct sockaddr *)&their_addr, (socklen_t *)&addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(3);
+        }
+        /* Se resta del contenido, el agua que fue movida a la jarra pequeña */
+        printf("Se ha movido %d Litros de agua de la jarra, a una jarra más pequeña.\n", atoi(buf + 7));
         contenido = contenido - atoi(buf + 7);
 
+        /* Se comprueba el estado de la jarra, y si está en el estado igual a contenido = 4 lts, se desactiva la bomba */
         if (contenido == 4)
         {
-            printf("Felicidades has desactivado la bomba\n");
+            printf("¡Felicidades! Se ha desativado la bomba.\n");
 
+            /* Se avisa a la jarra pequeña que ya se ha logrado el objetivo */
             if ((numbytes = sendto(sockfd, "FIN", strlen("FIN"), 0, (struct sockaddr *)&their_addr, sizeof(struct sockaddr))) == -1)
             {
                 perror("sendto");
@@ -108,7 +145,7 @@ int main(int argc, char *argv[])
             break;
         }
     }
-    /* cierro socket */
+    /* Se cierra el socket */
     close(sockfd);
     exit(0);
 }
